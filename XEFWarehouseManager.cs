@@ -6,7 +6,7 @@ using System.Linq;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(XEFWarehouseManager.Mod), "XEF Warehouse Manager", "0.1.2", "XEF / OpenAI")]
+[assembly: MelonInfo(typeof(XEFWarehouseManager.Mod), "XEF Warehouse Manager", "0.1.3", "XEF / OpenAI")]
 
 namespace XEFWarehouseManager
 {
@@ -24,7 +24,7 @@ namespace XEFWarehouseManager
         object? pc,oc,cfg;
         readonly List<Row> rows=new();
         readonly Dictionary<int,int> targets=new();
-        sealed class Row { public int Def,Pick,Stock,Pending,Inside; public float Price; public bool Unlocked; public string Name=""; }
+        sealed class Row { public int Def,Pick,Stock,Pending,Inside; public float Price; public bool Unlocked; public string Name=""; public object? Pickup; }
 
         public override void OnInitializeMelon(){ LoggerInstance.Msg("XEF Warehouse Manager loaded. Hotkey F7"); ResolveUnity(); ResolveGame(); }
         public override void OnUpdate(){
@@ -37,7 +37,7 @@ namespace XEFWarehouseManager
                 ResolveUnity(); if(glT==null||rectT==null)return;
                 var rect=Activator.CreateInstance(rectT,new object[]{40f,40f,1180f,820f})!;
                 GL("BeginArea",rect); GL("BeginVertical",Opts());
-                DrawPanelBackground(new object[]{40f,40f,1180f,820f}); GL("Label","XEF Warehouse Manager v0.1.2   [F7]",Opts());
+                DrawPanelBackground(new object[]{40f,40f,1180f,820f}); GL("Label","XEF Warehouse Manager v0.1.3   [F7]",Opts());
                 GL("BeginHorizontal",Opts());
                 GL("Label","Suche:",Opts(W(55))); search=Convert.ToString(GL("TextField",search,Opts(W(260))))??"";
                 onlyUnlocked=Convert.ToBoolean(GL("Toggle",onlyUnlocked,"nur freigeschaltet",Opts(W(155)))??onlyUnlocked);
@@ -51,7 +51,7 @@ namespace XEFWarehouseManager
                 if(B("Soll für alle = Standard",210)){foreach(var r in rows)targets[r.Def]=target;status=$"Sollbestand für {rows.Count} Artikel auf {target} gesetzt.";}
                 GL("FlexibleSpace");GL("Label",$"Artikel: {rows.Count}",Opts(W(100)));GL("EndHorizontal");
                 GL("Label",status,Opts()); GL("Space",4f);
-                GL("BeginHorizontal",Opts()); foreach(var h in new[]{("Artikel",315f),("Bestand",75f),("Unterwegs",80f),("Box",55f),("Preis",75f),("Soll",65f)})GL("Label",h.Item1,Opts(W(h.Item2))); GL("Label","Aktionen",Opts()); GL("EndHorizontal");
+                GL("BeginHorizontal",Opts()); foreach(var h in new[]{("Artikel",315f),("Vorhanden",75f),("Unterwegs",80f),("Box",55f),("Preis",75f),("Soll",65f)})GL("Label",h.Item1,Opts(W(h.Item2))); GL("Label","Bestellen",Opts()); GL("EndHorizontal");
                 var f=Filter().ToList(); int max=Math.Max(0,(f.Count-1)/18); page=Math.Min(page,max);
                 foreach(var r in f.Skip(page*18).Take(18)) Draw(r);
                 GL("FlexibleSpace");GL("BeginHorizontal",Opts());
@@ -73,21 +73,31 @@ namespace XEFWarehouseManager
             if(B("+1 Box",78))Order(r,1);if(B("+5",52))Order(r,5);if(B(boxes>0?$"Auffüllen ({boxes})":"Voll",125)&&boxes>0)Order(r,boxes);GL("EndHorizontal");
         }
         void OrderAll(){
-            Refresh(true);var ids=new List<int>();float cost=0;
-            foreach(var r in Filter()){if(r.Pick<0)continue;if(!targets.TryGetValue(r.Def,out var t))t=target;int pu=countPending?r.Pending*Math.Max(1,r.Inside):0,miss=Math.Max(0,t-r.Stock-pu),b=miss<=0?0:(int)Math.Ceiling(miss/(double)Math.Max(1,r.Inside));for(int i=0;i<b;i++)ids.Add(r.Pick);cost+=b*r.Price;}
-            if(ids.Count==0){status="Alles bereits auf/über Soll.";return;} if(Submit(ids))status=$"Sammelbestellung: {ids.Count} Boxen, ca. {cost:0.00}.";
+            Refresh(true);var order=new List<Row>();float cost=0;
+            foreach(var r in Filter()){
+                if(r.Pickup==null)continue;if(!targets.TryGetValue(r.Def,out var t))t=target;
+                int pu=countPending?r.Pending*Math.Max(1,r.Inside):0,miss=Math.Max(0,t-r.Stock-pu),b=miss<=0?0:(int)Math.Ceiling(miss/(double)Math.Max(1,r.Inside));
+                for(int i=0;i<b;i++)order.Add(r);cost+=b*r.Price;
+            }
+            if(order.Count==0){status="Alles bereits auf/über Soll.";return;}
+            if(Submit(order))status=$"Sammelbestellung: {order.Count} Boxen, ca. {cost:0.00}.";
         }
-        void Order(Row r,int b){if(b<=0||r.Pick<0)return;var ids=Enumerable.Repeat(r.Pick,b).ToList();if(Submit(ids))status=$"Bestellung: {b}x {r.Name} (ca. {b*r.Price:0.00}).";}
-        bool Submit(List<int> ids){
+        void Order(Row r,int b){if(b<=0||r.Pickup==null)return;var order=Enumerable.Repeat(r,b).ToList();if(Submit(order))status=$"Bestellung: {b}x {r.Name} (ca. {b*r.Price:0.00}).";}
+        bool Submit(List<Row> orderedRows){
             try{
-                Ensure();if(oc==null)throw new Exception("OrderController nicht gefunden. Spielstand laden.");RaiseLimit(ids.Count);
-                var a=AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x=>x.GetName().Name=="Il2CppInterop.Runtime")??throw new Exception("Il2CppInterop.Runtime fehlt.");
-                var at=a.GetType(IA,true)!.MakeGenericType(typeof(int));object arr;
-                var lc=at.GetConstructor(new[]{typeof(long)});var ic=at.GetConstructor(new[]{typeof(int)});
-                if(lc!=null)arr=lc.Invoke(new object[]{(long)ids.Count});else if(ic!=null)arr=ic.Invoke(new object[]{ids.Count});else throw new Exception("Array ctor fehlt.");
-                var item=at.GetProperty("Item")??throw new Exception("Array Item fehlt.");for(int i=0;i<ids.Count;i++)item.SetValue(arr,ids[i],new object[]{i});
-                var m=ocT!.GetMethods(BindingFlags.Public|BindingFlags.Instance).FirstOrDefault(x=>x.Name=="RequestOrderAsync"&&x.GetParameters().Length==3)??throw new Exception("RequestOrderAsync fehlt.");
-                m.Invoke(oc,new[]{arr,Enum.ToObject(octT!,0),(object)true});next=DateTime.UtcNow.AddSeconds(1);return true;
+                Ensure();if(oc==null)throw new Exception("OrderController nicht gefunden. Spielstand laden.");
+                if(orderedRows.Count==0)return false;RaiseLimit(orderedRows.Count);
+                var first=orderedRows.FirstOrDefault(r=>r.Pickup!=null)?.Pickup??throw new Exception("PickupDefinition nicht gefunden.");
+                var pickupType=first.GetType();
+                var listType=typeof(List<>).MakeGenericType(pickupType);
+                var list=Activator.CreateInstance(listType)??throw new Exception("Bestellliste konnte nicht erstellt werden.");
+                var add=listType.GetMethod("Add")??throw new Exception("Bestellliste Add fehlt.");
+                foreach(var r in orderedRows){ if(r.Pickup!=null) add.Invoke(list,new[]{r.Pickup}); }
+                var m=ocT!.GetMethods(BindingFlags.Public|BindingFlags.Instance)
+                    .FirstOrDefault(x=>x.Name=="RequestOrderAsync"&&x.GetParameters().Length==3&&x.GetParameters()[0].ParameterType.IsAssignableFrom(listType))
+                    ??ocT!.GetMethods(BindingFlags.Public|BindingFlags.Instance).FirstOrDefault(x=>x.Name=="RequestOrderAsync"&&x.GetParameters().Length==3)
+                    ??throw new Exception("RequestOrderAsync fehlt.");
+                m.Invoke(oc,new[]{list,Enum.ToObject(octT!,0),(object)true});next=DateTime.UtcNow.AddSeconds(1);return true;
             }catch(Exception e){status="Bestellung fehlgeschlagen: "+e.GetBaseException().Message;LoggerInstance.Error(e);return false;}
         }
         void Refresh(bool verbose){
@@ -97,12 +107,20 @@ namespace XEFWarehouseManager
                 cfg=Get(pc,"_productsConfig","ProductsConfig");
                 if(cfg==null&&oc!=null){var ps=Get(oc,"_productsService");if(ps!=null)cfg=Get(ps,"ProductsConfig","_config");}
                 if(cfg==null)throw new Exception("ProductsConfig nicht gefunden.");
-                var pend=Pending();var rebuilt=new List<Row>();var products=Get(pc,"Products","_products");
-                foreach(var info in Each(products)){
+                var pend=Pending();var rebuilt=new List<Row>();var allInfos=new List<object?>();
+                foreach(var flag in new[]{false,true}){
+                    var got=Call(pc,"GetProductsTypeCount",flag);
+                    foreach(var x in Each(got)) allInfos.Add(x);
+                }
+                if(allInfos.Count==0){
+                    var products=Get(pc,"Products","_products");
+                    foreach(var x in Each(products)) allInfos.Add(x);
+                }
+                foreach(var info in allInfos){
                     if(info==null)continue;int d=I(Get(info,"DefinitionId"),-1);if(d<0)continue;int st=I(Get(info,"AllCount"),0);bool un=Bo(Call(pc,"IsProductBought",d),true);
                     var pd=Call(cfg,"FindProductDefinition",d);if(pd==null)continue;string name=Convert.ToString(Get(pd,"Name","FullName","HoldingTextKey","Title"))??$"Artikel #{d}";int inside=Math.Max(1,I(Get(pd,"InsideCount"),1));
                     var pick=Call(cfg,"FindPickupDefinitionByProductId",d);int pid=pick==null?-1:I(Get(pick,"Id"),-1);float price=0;if(pick!=null){var pv=Call(pick,"GetPrice")??Get(pick,"Price","Cost","PurchasePrice");if(pv!=null)price=Convert.ToSingle(pv,CultureInfo.InvariantCulture);}
-                    pend.TryGetValue(pid,out var p);rebuilt.Add(new Row{Def=d,Pick=pid,Name=name,Stock=st,Pending=p,Inside=inside,Price=price,Unlocked=un});if(!targets.ContainsKey(d))targets[d]=target;
+                    pend.TryGetValue(pid,out var p);rebuilt.Add(new Row{Def=d,Pick=pid,Name=name,Stock=st,Pending=p,Inside=inside,Price=price,Unlocked=un,Pickup=pick});if(!targets.ContainsKey(d))targets[d]=target;
                 }
                 rows.Clear();rows.AddRange(rebuilt.GroupBy(r=>r.Def).Select(g=>g.First()));if(verbose)status=$"Bestand aktualisiert: {rows.Count} Artikel.";
             }catch(Exception e){if(verbose)status="Aktualisierung fehlgeschlagen: "+e.GetBaseException().Message;LoggerInstance.Warning(e.ToString());}
@@ -144,7 +162,14 @@ namespace XEFWarehouseManager
         static object? Get(object? o,params string[] n){if(o==null)return null;var t=o.GetType();var f=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;foreach(var x in n){try{var p=t.GetProperty(x,f);if(p!=null&&p.GetIndexParameters().Length==0)return p.GetValue(o);var q=t.GetField(x,f);if(q!=null)return q.GetValue(o);}catch{}}return null;}
         static bool Set(object o,object v,params string[] n){var t=o.GetType();var f=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;foreach(var x in n){try{var p=t.GetProperty(x,f);if(p!=null&&p.CanWrite){p.SetValue(o,Convert.ChangeType(v,p.PropertyType));return true;}var q=t.GetField(x,f);if(q!=null){q.SetValue(o,Convert.ChangeType(v,q.FieldType));return true;}}catch{}}return false;}
         static object? Call(object? o,string n,params object?[] a){if(o==null)return null;var f=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;foreach(var m in o.GetType().GetMethods(f).Where(x=>x.Name==n&&x.GetParameters().Length==a.Length)){try{return m.Invoke(o,a);}catch{}}return null;}
-        static IEnumerable<object?> Each(object? c){if(c is IEnumerable e){foreach(var x in e)yield return x;}}
+        static IEnumerable<object?> Each(object? c){
+            if(c==null)yield break;
+            if(c is IEnumerable e){foreach(var x in e)yield return x;yield break;}
+            var t=c.GetType();var f=BindingFlags.Instance|BindingFlags.Public|BindingFlags.NonPublic;
+            var cp=t.GetProperty("Count",f);var ip=t.GetProperty("Item",f);
+            if(cp==null||ip==null)yield break;int n;try{n=Convert.ToInt32(cp.GetValue(c));}catch{yield break;}
+            for(int i=0;i<n;i++){object? x=null;try{x=ip.GetValue(c,new object[]{i});}catch{}yield return x;}
+        }
         static int I(object? x,int d){try{return x==null?d:Convert.ToInt32(x);}catch{return d;}} static bool Bo(object? x,bool d){try{return x==null?d:Convert.ToBoolean(x);}catch{return d;}}
     }
 }
