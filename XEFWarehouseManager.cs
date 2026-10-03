@@ -6,7 +6,7 @@ using System.Linq;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(XEFWarehouseManager.Mod), "XEF Warehouse Manager", "0.1.1", "XEF / OpenAI")]
+[assembly: MelonInfo(typeof(XEFWarehouseManager.Mod), "XEF Warehouse Manager", "0.1.2", "XEF / OpenAI")]
 
 namespace XEFWarehouseManager
 {
@@ -37,7 +37,7 @@ namespace XEFWarehouseManager
                 ResolveUnity(); if(glT==null||rectT==null)return;
                 var rect=Activator.CreateInstance(rectT,new object[]{40f,40f,1180f,820f})!;
                 GL("BeginArea",rect); GL("BeginVertical",Opts());
-                GL("Label","XEF Warehouse Manager v0.1.1   [F7]",Opts());
+                DrawPanelBackground(new object[]{40f,40f,1180f,820f}); GL("Label","XEF Warehouse Manager v0.1.2   [F7]",Opts());
                 GL("BeginHorizontal",Opts());
                 GL("Label","Suche:",Opts(W(55))); search=Convert.ToString(GL("TextField",search,Opts(W(260))))??"";
                 onlyUnlocked=Convert.ToBoolean(GL("Toggle",onlyUnlocked,"nur freigeschaltet",Opts(W(155)))??onlyUnlocked);
@@ -115,6 +115,29 @@ namespace XEFWarehouseManager
         void ResolveUnity(){inputT??=Type.GetType("UnityEngine.Input, UnityEngine.InputLegacyModule");keyT??=Type.GetType("UnityEngine.KeyCode, UnityEngine.CoreModule");objT??=Type.GetType("UnityEngine.Object, UnityEngine.CoreModule");rectT??=Type.GetType("UnityEngine.Rect, UnityEngine.CoreModule");glT??=Type.GetType("UnityEngine.GUILayout, UnityEngine.IMGUIModule");optT??=Type.GetType("UnityEngine.GUILayoutOption, UnityEngine.IMGUIModule");}
         bool F7(){try{ResolveUnity();if(inputT==null||keyT==null)return false;var m=inputT.GetMethod("GetKeyDown",BindingFlags.Public|BindingFlags.Static,null,new[]{keyT},null);return m!=null&&(bool)(m.Invoke(null,new[]{Enum.Parse(keyT,"F7")})??false);}catch{return false;}}
         void Cursor(bool v){try{var t=Type.GetType("UnityEngine.Cursor, UnityEngine.CoreModule");if(t==null)return;t.GetProperty("visible",BindingFlags.Public|BindingFlags.Static)?.SetValue(null,v);var p=t.GetProperty("lockState",BindingFlags.Public|BindingFlags.Static);if(p!=null&&p.PropertyType.IsEnum){var state=Enum.Parse(p.PropertyType,v?"None":"Locked");p.SetValue(null,state);}}catch(Exception e){LoggerInstance.Warning("Cursor: "+e.Message);}}
+        void DrawPanelBackground(object[] r){
+            try{
+                var gui=Type.GetType("UnityEngine.GUI, UnityEngine.IMGUIModule");
+                var colorT=Type.GetType("UnityEngine.Color, UnityEngine.CoreModule");
+                var texT=Type.GetType("UnityEngine.Texture2D, UnityEngine.CoreModule");
+                if(gui==null||colorT==null||texT==null||rectT==null)return;
+                var old=gui.GetProperty("color",BindingFlags.Public|BindingFlags.Static)?.GetValue(null);
+                var col=Activator.CreateInstance(colorT,new object[]{0.22f,0.22f,0.24f,0.86f});
+                gui.GetProperty("color",BindingFlags.Public|BindingFlags.Static)?.SetValue(null,col);
+                var white=texT.GetProperty("whiteTexture",BindingFlags.Public|BindingFlags.Static)?.GetValue(null);
+                if(white!=null){
+                    var draw=gui.GetMethods(BindingFlags.Public|BindingFlags.Static).FirstOrDefault(m=>m.Name=="DrawTexture"&&m.GetParameters().Length>=2&&m.GetParameters()[0].ParameterType==rectT);
+                    if(draw!=null){
+                        var rect=Activator.CreateInstance(rectT,r);
+                        var p=draw.GetParameters();
+                        var args=new object?[p.Length];args[0]=rect;args[1]=white;
+                        for(int i=2;i<p.Length;i++) args[i]=p[i].HasDefaultValue?p[i].DefaultValue:Activator.CreateInstance(p[i].ParameterType);
+                        draw.Invoke(null,args);
+                    }
+                }
+                if(old!=null)gui.GetProperty("color",BindingFlags.Public|BindingFlags.Static)?.SetValue(null,old);
+            }catch(Exception e){LoggerInstance.Warning("Panel background: "+e.Message);}
+        }
         object? GL(string name,params object?[] args){if(glT==null)return null;foreach(var m in glT.GetMethods(BindingFlags.Public|BindingFlags.Static).Where(x=>x.Name==name&&x.GetParameters().Length==args.Length)){try{return m.Invoke(null,args);}catch{}}return null;}
         Array Opts(params object?[] x){if(optT==null)return Array.Empty<object>();var a=Array.CreateInstance(optT,x.Length);for(int i=0;i<x.Length;i++)if(x[i]!=null)a.SetValue(x[i],i);return a;}
         object? W(float v)=>GL("Width",v);bool B(string s,float w)=>GL("Button",s,Opts(W(w))) is bool b&&b;
