@@ -1,0 +1,26 @@
+name: Build DLL
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '6.0.x'
+      - name: Restore
+        run: dotnet restore
+      - name: Build
+        run: dotnet build -c Release --no-restore
+      - name: Stage DLL
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force artifact | Out-Null
+          Copy-Item "bin/Release/net6.0/XEFWarehouseManager.dll" "artifact/XEFWarehouseManager.dll"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: XEFWarehouseManager
+          path: artifact/XEFWarehouseManager.dll
