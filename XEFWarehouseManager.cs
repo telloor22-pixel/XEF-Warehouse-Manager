@@ -6,15 +6,15 @@ using System.Linq;
 using System.Reflection;
 using MelonLoader;
 
-[assembly: MelonInfo(typeof(XEFWarehouseManager.Mod), "XEF Warehouse Manager", "0.1.0", "XEF / OpenAI")]
+[assembly: MelonInfo(typeof(XEFWarehouseManager.Mod), "XEF Warehouse Manager", "0.1.1", "XEF / OpenAI")]
 
 namespace XEFWarehouseManager
 {
     public sealed class Mod : MelonMod
     {
-        const string PC="Il2CppProject.Code.Gameplay.Controllers.ProductsController";
-        const string OC="Il2CppProject.Code.Gameplay.Controllers.OrderController";
-        const string OCT="Il2CppProject.Code.Gameplay.Services.OrderCatalogType";
+        const string PC="Project.Code.Gameplay.Controllers.ProductsController";
+        const string OC="Project.Code.Gameplay.Controllers.OrderController";
+        const string OCT="Project.Code.Gameplay.Services.OrderCatalogType";
         const string IA="Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStructArray`1";
         bool open, onlyUnlocked=true, countPending=true;
         int target=30,page;
@@ -28,7 +28,7 @@ namespace XEFWarehouseManager
 
         public override void OnInitializeMelon(){ LoggerInstance.Msg("XEF Warehouse Manager loaded. Hotkey F7"); ResolveUnity(); ResolveGame(); }
         public override void OnUpdate(){
-            if(F7()){ open=!open; if(open){ Cursor(true); Refresh(true);} }
+            if(F7()){ open=!open; Cursor(open); if(open) Refresh(true); }
             if(open && DateTime.UtcNow>=next) Refresh(false);
         }
         public override void OnGUI(){
@@ -37,7 +37,7 @@ namespace XEFWarehouseManager
                 ResolveUnity(); if(glT==null||rectT==null)return;
                 var rect=Activator.CreateInstance(rectT,new object[]{40f,40f,1180f,820f})!;
                 GL("BeginArea",rect); GL("BeginVertical",Opts());
-                GL("Label","XEF Warehouse Manager v0.1   [F7]",Opts());
+                GL("Label","XEF Warehouse Manager v0.1.1   [F7]",Opts());
                 GL("BeginHorizontal",Opts());
                 GL("Label","Suche:",Opts(W(55))); search=Convert.ToString(GL("TextField",search,Opts(W(260))))??"";
                 onlyUnlocked=Convert.ToBoolean(GL("Toggle",onlyUnlocked,"nur freigeschaltet",Opts(W(155)))??onlyUnlocked);
@@ -111,10 +111,10 @@ namespace XEFWarehouseManager
         void RaiseLimit(int n){if(cfg==null)return;var o=Get(cfg,"OrderingPrice","_orderingPrice");if(o==null)return;int cur=I(Get(o,"OrderLimit","_orderLimit"),0);if(cur<n)Set(o,n,"_orderLimit","OrderLimit");}
         void Ensure(){ResolveGame();ResolveUnity();if(objT==null)return;if(pc==null)pc=Find(pcT);if(oc==null)oc=Find(ocT);}
         object? Find(Type? t){if(t==null||objT==null)return null;var m=objT.GetMethod("FindObjectOfType",BindingFlags.Public|BindingFlags.Static,null,new[]{typeof(Type)},null);return m?.Invoke(null,new object[]{t});}
-        void ResolveGame(){if(pcT!=null)return;var a=AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x=>x.GetName().Name=="Il2CppProject");if(a==null)return;pcT=a.GetType(PC);ocT=a.GetType(OC);octT=a.GetType(OCT);}
+        void ResolveGame(){if(pcT!=null&&ocT!=null&&octT!=null)return;var a=AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(x=>x.GetName().Name=="Il2CppProject");if(a==null)return;Type[] ts;try{ts=a.GetTypes();}catch(ReflectionTypeLoadException e){ts=e.Types.Where(x=>x!=null).Cast<Type>().ToArray();}pcT=a.GetType(PC,false)??ts.FirstOrDefault(t=>t.Name=="ProductsController");ocT=a.GetType(OC,false)??ts.FirstOrDefault(t=>t.Name=="OrderController");octT=a.GetType(OCT,false)??ts.FirstOrDefault(t=>t.Name=="OrderCatalogType");if(pcT!=null)LoggerInstance.Msg("ProductsController: "+pcT.FullName);if(ocT!=null)LoggerInstance.Msg("OrderController: "+ocT.FullName);if(octT!=null)LoggerInstance.Msg("OrderCatalogType: "+octT.FullName);}
         void ResolveUnity(){inputT??=Type.GetType("UnityEngine.Input, UnityEngine.InputLegacyModule");keyT??=Type.GetType("UnityEngine.KeyCode, UnityEngine.CoreModule");objT??=Type.GetType("UnityEngine.Object, UnityEngine.CoreModule");rectT??=Type.GetType("UnityEngine.Rect, UnityEngine.CoreModule");glT??=Type.GetType("UnityEngine.GUILayout, UnityEngine.IMGUIModule");optT??=Type.GetType("UnityEngine.GUILayoutOption, UnityEngine.IMGUIModule");}
         bool F7(){try{ResolveUnity();if(inputT==null||keyT==null)return false;var m=inputT.GetMethod("GetKeyDown",BindingFlags.Public|BindingFlags.Static,null,new[]{keyT},null);return m!=null&&(bool)(m.Invoke(null,new[]{Enum.Parse(keyT,"F7")})??false);}catch{return false;}}
-        void Cursor(bool v){try{Type.GetType("UnityEngine.Cursor, UnityEngine.CoreModule")?.GetProperty("visible",BindingFlags.Public|BindingFlags.Static)?.SetValue(null,v);}catch{}}
+        void Cursor(bool v){try{var t=Type.GetType("UnityEngine.Cursor, UnityEngine.CoreModule");if(t==null)return;t.GetProperty("visible",BindingFlags.Public|BindingFlags.Static)?.SetValue(null,v);var p=t.GetProperty("lockState",BindingFlags.Public|BindingFlags.Static);if(p!=null&&p.PropertyType.IsEnum){var state=Enum.Parse(p.PropertyType,v?"None":"Locked");p.SetValue(null,state);}}catch(Exception e){LoggerInstance.Warning("Cursor: "+e.Message);}}
         object? GL(string name,params object?[] args){if(glT==null)return null;foreach(var m in glT.GetMethods(BindingFlags.Public|BindingFlags.Static).Where(x=>x.Name==name&&x.GetParameters().Length==args.Length)){try{return m.Invoke(null,args);}catch{}}return null;}
         Array Opts(params object?[] x){if(optT==null)return Array.Empty<object>();var a=Array.CreateInstance(optT,x.Length);for(int i=0;i<x.Length;i++)if(x[i]!=null)a.SetValue(x[i],i);return a;}
         object? W(float v)=>GL("Width",v);bool B(string s,float w)=>GL("Button",s,Opts(W(w))) is bool b&&b;
